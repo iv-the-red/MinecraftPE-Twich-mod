@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voting Overlay</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+        body {
+            margin: 0;
+            background: transparent;
+            color: #ffffff;
+            font-family: 'Press Start 2P', sans-serif;
+            display: flex;
+            flex-direction: row;
+            align-items: flex-start;
+            justify-content: space-between;
+            height: 100vh;
+            overflow: hidden;
+        }
+        .timer-bar {
+            width: 100%;
+            height: 10px;
+            background: rgba(0, 0, 0, 0.65);
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+        .timer-bar-fill {
+            height: 100%;
+            background: #800080;
+            width: 0%;
+            transition: width linear;
+        }
+        .vote-container {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            margin: 20px;
+            width: 50%; /* Ensure it takes up half the screen */
+        }
+        .total-votes {
+            font-size: 16px;
+            margin-bottom: 10px;
+            color: #ffffff;
+        }
+        .tube {
+            width: 100%;
+            height: 40px; /* Increased height */
+            background: rgba(0, 0, 0, 0.85); /* Darker background */
+            border: 2px solid rgba(128, 0, 128, 0.5); /* Purple border */
+            margin-bottom: 15px; /* More spacing */
+            box-shadow: 0 0 10px rgba(128, 0, 128, 0.3); /* Subtle glow */
+            overflow: hidden;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 10px;
+            color: #ffffff;
+            font-size: 14px;
+        }
+        .tube-fill {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            background: linear-gradient(45deg, #800080, #ff00ff); /* Gradient fill */
+            width: 0%;
+            z-index: 0;
+            transition: width 0.3s ease-out; /* Smoother transition */
+        }
+        .tube-content {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+        }
+        .event-container {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end; /* Align to the maximum right */
+            margin: 20px;
+            width: 50%; /* Ensure it takes up half the screen */
+        }
+        .event-box {
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            width: auto; /* Adjust width to fit content */
+            height: auto; /* Adjust height to fit content */
+            background: rgba(0, 0, 0, 0.85);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            box-shadow: 0 0 15px rgba(255, 255, 255, 0.2);
+            overflow: hidden;
+            position: relative;
+            margin-bottom: 10px;
+            padding: 10px 15px; /* Add padding for better text fit */
+            color: #ffffff86;
+            font-size: 14px;
+            min-width: 200px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+        .event-fill {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            background: linear-gradient(90deg, #ffffff, #800080);
+            width: 0%;
+            z-index: 0;
+            transition: width linear;
+            opacity: 0.5;
+            width: 100%;
+        }
+        .event-content {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            padding-left: 10px;
+            width: 100%;
+            color: #ffffff;
+            font-weight: bold;
+        }
+        .event-name {
+            margin-right: 10px;
+            z-index: 1;
+        }
+        .error {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 5px;
+            display: none;
+            animation: fadeIn 0.3s ease-in;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        /* Add animations for vote updates */
+        .tube-update {
+            animation: pulse 0.3s ease-out;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+            100% { transform: scale(1); }
+        }
+    </style>
+</head>
+<body>
+    <div class="timer-bar">
+        <div class="timer-bar-fill" id="timer-bar-fill"></div>
+    </div>
+    <div class="vote-container" id="vote-container"></div>
+    <div class="event-container" id="event-container"></div>
+    <div id="error-container" class="error"></div>
+    <script>
+        // Core WebSocket functionality
+        const ws = new WebSocket('ws://localhost:8765');
+        const containers = {
+            vote: document.getElementById('vote-container'),
+            timer: document.getElementById('timer-bar-fill'),
+            event: document.getElementById('event-container'),
+            error: document.getElementById('error-container')
+        };
+
+        // Main message handler
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            const handlers = {
+                'reset_timer': handleResetTimer,
+                'start_vote': handleResetTimer,
+                'update_vote': handleUpdateVote,
+                'end_vote': handleEndVote,
+                'stop_timer': handleStopTimer
+            };
+            
+            if (handlers[data.type]) {
+                handlers[data.type](data);
+            }
+        };
+
+        // Event handlers
+        function handleResetTimer(data) {
+            if (!data.options || !Array.isArray(data.options) || data.options.length === 0) {
+                console.error('[OVERLAY] Invalid options in reset_timer or start_vote message.');
+                return;
+            }
+
+            // Clear the vote container and reset the timer bar
+            containers.vote.innerHTML = '';
+            containers.timer.style.width = '0%';
+            containers.timer.style.transitionDuration = '0s';
+
+            // Start the timer bar animation
+            setTimeout(() => {
+                containers.timer.style.transitionDuration = `${data.duration}s`;
+                containers.timer.style.width = '100%';
+            }, 0);
+
+            // Display total votes
+            const totalVotesDiv = document.createElement('div');
+            totalVotesDiv.className = 'total-votes';
+            totalVotesDiv.textContent = `Total Votes: 0`;
+            containers.vote.appendChild(totalVotesDiv);
+
+            // Display voting options
+            data.options.forEach((option, index) => {
+                const tube = document.createElement('div');
+                tube.className = 'tube';
+
+                const tubeFill = document.createElement('div');
+                tubeFill.className = 'tube-fill';
+                tubeFill.style.width = `${data.percentages[index]}%`;
+
+                const tubeContent = document.createElement('div');
+                tubeContent.className = 'tube-content';
+                tubeContent.innerHTML = `<span>${index + 1}. ${option}</span><span>${Math.round(data.percentages[index])}%</span>`;
+
+                tube.appendChild(tubeFill);
+                tube.appendChild(tubeContent);
+                containers.vote.appendChild(tube);
+            });
+        }
+
+        function handleUpdateVote(data) {
+            const tubes = document.querySelectorAll('.tube');
+            if (tubes.length === data.options.length) {
+                data.options.forEach((option, index) => {
+                    const tube = tubes[index];
+                    const tubeFill = tube.querySelector('.tube-fill');
+                    const oldWidth = parseFloat(tubeFill.style.width);
+                    const newWidth = data.percentages[index];
+
+                    // Add animation when votes change
+                    if (oldWidth !== newWidth) {
+                        tube.classList.add('tube-update');
+                        setTimeout(() => tube.classList.remove('tube-update'), 300);
+                    }
+
+                    tubeFill.style.width = `${newWidth}%`;
+
+                    const tubeContent = tube.querySelector('.tube-content');
+                    tubeContent.innerHTML = `<span>${index + 1}. ${option}</span><span>${Math.round(data.percentages[index])}%</span>`;
+                });
+
+                // Update total votes
+                const totalVotes = data.votes.reduce((a, b) => a + b, 0);
+                const totalVotesDiv = document.querySelector('.total-votes');
+                totalVotesDiv.textContent = `Total Votes: ${totalVotes}`;
+            } else {
+                console.error('[OVERLAY] Mismatch between voting options and displayed tubes.');
+            }
+        }
+
+        function handleEndVote(data) {
+            const eventBox = document.createElement('div');
+            eventBox.className = 'event-box';
+
+            const eventFill = document.createElement('div');
+            eventFill.className = 'event-fill';
+            
+            const eventContent = document.createElement('div');
+            eventContent.className = 'event-content';
+            eventContent.textContent = data.winner;
+
+            eventBox.appendChild(eventFill);
+            eventBox.appendChild(eventContent);
+            containers.event.appendChild(eventBox);
+
+            // Force a reflow before starting the animation
+            eventBox.offsetHeight;
+
+            // Set the transition duration and start width
+            eventFill.style.transitionDuration = `${data.duration}s`;
+            eventFill.style.width = '100%';
+
+            // Start the animation after a short delay
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    eventFill.style.width = '0%';
+                });
+            });
+
+            // Remove the event box after the duration
+            setTimeout(() => {
+                if (containers.event.contains(eventBox)) {
+                    eventBox.remove();
+                }
+            }, data.duration * 1000);
+        }
+
+        function handleStopTimer() {
+            // Stop and reset the timer bar
+            containers.timer.style.width = '0%';
+            containers.timer.style.transitionDuration = '0s';
+
+            // Clear all event boxes
+            while (containers.event.firstChild) {
+                containers.event.removeChild(containers.event.firstChild);
+            }
+        }
+
+        function showError(message) {
+            containers.error.style.display = 'block';
+            containers.error.textContent = message;
+            setTimeout(() => {
+                containers.error.style.display = 'none';
+            }, 5000); // Hide after 5 seconds
+        }
+
+        // Error handling and reconnection
+        ws.onerror = () => showError('Connection error. Retrying...');
+        ws.onclose = () => setTimeout(connect, 3000);
+        
+        function connect() {
+            ws.onclose = () => setTimeout(connect, 3000);
+        }
+        connect();
+    </script>
+</body>
+</html>
