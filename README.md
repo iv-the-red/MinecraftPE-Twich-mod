@@ -21,7 +21,7 @@ A Python bot that integrates Twitch chat voting with Minecraft server commands, 
 
 1. Clone this repository:
 ```bash
-git clone https://github.com/yourusername/Twich-Rcon-script.git
+git clone https://github.com/iv-the-red/MinecraftPE-Twich-mod
 cd Twich-Rcon-script
 ```
 
